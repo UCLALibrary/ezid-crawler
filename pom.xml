@@ -1,0 +1,92 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>edu.ucla.library</groupId>
+  <artifactId>ezid-crawler</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>EZID Crawler</name>
+  <description>A simple utility to associate files with ARKs</description>
+
+  <properties>
+    <ezid.version>1.0.0</ezid.version>
+    <opencsv.version>2.3</opencsv.version>
+    <logback.version>1.1.3</logback.version>
+    <freelib.utils.version>0.6.0-SNAPSHOT</freelib.utils.version>
+    <maven.shade.plugin.version>2.4.1</maven.shade.plugin.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <version>${logback.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>info.freelibrary</groupId>
+      <artifactId>freelib-utils</artifactId>
+      <version>${freelib.utils.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>edu.ucsb.nceas</groupId>
+      <artifactId>ezid</artifactId>
+      <version>${ezid.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>net.sf.opencsv</groupId>
+      <artifactId>opencsv</artifactId>
+      <version>${opencsv.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>${maven.shade.plugin.version}</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <manifestEntries>
+                    <Main-Class>edu.ucla.library.ezid.crawler.Crawler</Main-Class>
+                  </manifestEntries>
+                </transformer>
+              </transformers>
+              <minimizeJar>true</minimizeJar>
+              <outputFile>${project.build.directory}/${project.artifactId}-${project.version}-exec.jar</outputFile>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <repositories>
+    <repository>
+      <id>snapshots-repo</id>
+      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+      <releases>
+        <enabled>false</enabled>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+    </repository>
+    <repository>
+      <id>dataone.org</id>
+      <url>http://dev-testing.dataone.org/maven</url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+    </repository>
+  </repositories>
+</project>
