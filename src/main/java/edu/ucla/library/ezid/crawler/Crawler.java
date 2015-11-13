@@ -4,7 +4,10 @@ package edu.ucla.library.ezid.crawler;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Properties;
+import java.util.Scanner;
 import java.util.Set;
 
 import org.slf4j.Logger;
@@ -15,10 +18,18 @@ import info.freelibrary.util.FileUtils;
 import info.freelibrary.util.StringUtils;
 
 import au.com.bytecode.opencsv.CSVWriter;
+import edu.ucsb.nceas.ezid.EZIDException;
+import edu.ucsb.nceas.ezid.EZIDService;
 
 public class Crawler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Crawler.class);
+
+    private static final String EZID_USER = "ezid.username";
+
+    private static final String EZID_PSWD = "ezid.password";
+
+    private static final String ARK_SHOULDER = "ark.shoulder";
 
     private final File mySourceDir;
 
@@ -33,6 +44,7 @@ public class Crawler {
     }
 
     public static void main(final String[] args) throws IOException {
+        final Properties properties = System.getProperties();
         File dir = null;
         File out = null;
         String[] exts = null;
@@ -80,17 +92,55 @@ public class Crawler {
             LOGGER.warn("Crawler started without all the required arguments");
             printUsageAndExit();
         } else {
-            new Crawler(dir, out, exts).crawl();
+            final String username;
+            final String password;
+            final String shoulder;
+
+            if (!properties.containsKey(EZID_USER) || !properties.containsKey(EZID_PSWD) || !properties.containsKey(
+                    ARK_SHOULDER)) {
+                final Scanner reader = new Scanner(System.in);
+                System.out.println("EZID username: ");
+                System.out.print(" ");
+                username = reader.nextLine();
+                System.out.println("EZID password: ");
+                System.out.print(" ");
+                password = reader.nextLine();
+                System.out.println("ARK shoulder: ");
+                System.out.print(" ");
+                shoulder = reader.nextLine();
+                reader.close();
+            } else {
+                username = properties.getProperty(EZID_USER);
+                password = properties.getProperty(EZID_PSWD);
+                shoulder = properties.getProperty(ARK_SHOULDER);
+            }
+
+            new Crawler(dir, out, exts).crawl(username, password, shoulder);
         }
     }
 
-    public void crawl() throws IOException {
+    public void crawl(final String aUsername, final String aPassword, final String aShoulder) throws IOException {
         final File[] files = FileUtils.listFiles(mySourceDir, new FileExtFileFilter(myFileExts), true);
         final CSVWriter csvWriter = new CSVWriter(new FileWriter(myOutputFile));
         final Set<String> set = new HashSet<String>();
+        final EZIDService ezid = new EZIDService();
+
+        try {
+            ezid.login(aUsername, aPassword);
+        } catch (final EZIDException details) {
+            System.err.println("Unable to login to EZID service");
+            System.exit(1);
+        }
 
         for (final File file : files) {
+            final HashMap<String, String> metadata = new HashMap<String, String>();
             final String fileName = file.getName();
+
+            String id;
+
+            metadata.put("erc.who", "UCLA Digital Library");
+            metadata.put("erc.what", FileUtils.stripExt(fileName));
+            metadata.put("_status", "reserved");
 
             if (set.contains(fileName)) {
                 LOGGER.warn("Adding a duplicate simple file name");
@@ -98,7 +148,18 @@ public class Crawler {
                 LOGGER.debug("Adding '{}' to the list of files", file);
             }
 
-            csvWriter.writeNext(new String[] { FileUtils.stripExt(fileName), file.getAbsolutePath() });
+            try {
+                id = ezid.mintIdentifier(aShoulder, metadata);
+
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug("Successfully created EZID ARK: {}", id);
+                }
+            } catch (final EZIDException details) {
+                LOGGER.error("Failed to create ARK: {}", details.getMessage());
+                id = FileUtils.stripExt(fileName);
+            }
+
+            csvWriter.writeNext(new String[] { id, file.getAbsolutePath() });
         }
 
         csvWriter.close();
