@@ -1,12 +1,26 @@
 
 package edu.ucla.library.ezid.crawler.utils;
 
+import java.awt.Dimension;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.MalformedURLException;
 import java.net.URISyntaxException;
+import java.net.URL;
+import java.security.GeneralSecurityException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 import org.codehaus.plexus.util.FileUtils;
 import org.slf4j.Logger;
@@ -32,8 +46,45 @@ import info.freelibrary.jiiify.iiif.presentation.model.other.Service;
 import info.freelibrary.jiiify.util.PathUtils;
 
 import au.com.bytecode.opencsv.CSVReader;
+import io.vertx.core.json.JsonObject;
 
 public class CSVManifestor {
+
+    static {
+        final TrustManager[] trustAllCerts = new TrustManager[] { new X509TrustManager() {
+
+            @Override
+            public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                return new X509Certificate[0];
+            }
+
+            @Override
+            public void checkClientTrusted(final java.security.cert.X509Certificate[] certs, final String authType) {
+            }
+
+            @Override
+            public void checkServerTrusted(final java.security.cert.X509Certificate[] certs, final String authType) {
+            }
+        } };
+
+        try {
+            final SSLContext sc = SSLContext.getInstance("SSL");
+            sc.init(null, trustAllCerts, new java.security.SecureRandom());
+            HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
+        } catch (final GeneralSecurityException details) {
+            throw new RuntimeException(details);
+        }
+
+        final HostnameVerifier allHostsValid = new HostnameVerifier() {
+
+            @Override
+            public boolean verify(final String hostname, final SSLSession session) {
+                return true;
+            }
+        };
+
+        HttpsURLConnection.setDefaultHostnameVerifier(allHostsValid);
+    }
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CSVManifestor.class);
 
@@ -45,7 +96,7 @@ public class CSVManifestor {
     /* ARK for the Manuscript itself -- this particular one is for Arabic_NF_8 */
     private static final String MANUSCRIPT_ARK = "ark:/21198/z1kd1z25";
 
-    private static final String SERVER = "https://localhost:8443";
+    private static final String SERVER = "https://stage-images.library.ucla.edu";
 
     private static final String IIIF_SERVER = SERVER + "/iiif/";
 
@@ -73,7 +124,7 @@ public class CSVManifestor {
                 if (!name.equals(canvasName)) {
                     if (!canvasName.equals("")) {
                         final Canvas canvas = getCanvas(MANUSCRIPT_ARK, canvasName, ++canvasCount);
-                        final List<Image> images = canvas.getImages();
+                        final List<Image> images = new ArrayList<Image>();
 
                         if (LOGGER.isDebugEnabled()) {
                             LOGGER.debug("Processing canvas: {}", canvas.getId());
@@ -81,11 +132,17 @@ public class CSVManifestor {
 
                         for (int count = 1; startIndex <= index; startIndex++) {
                             final String[] source = sources.get(startIndex);
+                            final String canvasId = canvas.getId();
 
-                            images.add(getImage(MANUSCRIPT_ARK, source[0], source[1], canvas.getId(), count++));
+                            images.add(getImage(MANUSCRIPT_ARK, source[0], source[1], canvasId, count++));
                         }
 
+                        final Image image = images.get(0);
+                        final ImageResource resource = (ImageResource) image.getResource();
+
                         canvas.setImages(images);
+                        canvas.setWidth(resource.getWidth());
+                        canvas.setHeight(resource.getHeight());
                         canvases.add(canvas);
                     }
 
@@ -102,16 +159,23 @@ public class CSVManifestor {
     }
 
     private static final Image getImage(final String aObjID, final String aImageID, final String aLabel,
-            final String aOn, final int aCount) throws URISyntaxException {
-        final Image image = new Image(getID(IIIF_SERVER, PathUtils.encodeIdentifier(aObjID), "imageanno", aCount));
+            final String aOn, final int aCount) throws URISyntaxException, MalformedURLException, IOException {
+        final String imageId = getID(IIIF_SERVER, PathUtils.encodeIdentifier(aObjID), "imageanno", aCount);
+
+        if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug("Processing image: {}", imageId);
+        }
+
+        final Image image = new Image(imageId);
         final ImageResource resource = new ImageResource();
-        final Service service = new Service(IIIF_SERVER + PathUtils.encodeIdentifier(aImageID));
+        final Service service = new Service(IIIF_SERVER + PathUtils.encodeIdentifier(aImageID) + "/info.json");
+        final Dimension dims = getHeightWidth(aImageID);
 
         image.setOn(aOn);
         service.setProfile(IIIF_PROFILE);
         service.setContext(IIIF_CONTEXT);
-        resource.setHeight(getHeight(aImageID));
-        resource.setWidth(getWidth(aImageID));
+        resource.setHeight(dims.height);
+        resource.setWidth(dims.width);
         resource.setFormat("image/jpeg");
         resource.setService(service);
         image.setResource(resource);
@@ -120,14 +184,37 @@ public class CSVManifestor {
     }
 
     private static final Canvas getCanvas(final String aID, final String aLabel, final int aCount)
-            throws URISyntaxException {
+            throws URISyntaxException, MalformedURLException, IOException {
         final String id = getID(IIIF_SERVER, PathUtils.encodeIdentifier(aID), "canvas", aCount);
-        final Canvas canvas = new Canvas(id, aLabel, getHeight(aID), getWidth(aID));
+        final Canvas canvas = new Canvas(id, aLabel, 0, 0);
 
         canvas.setThumbnail(getThumbnail(aID));
-        canvas.setImages(new ArrayList<Image>());
 
         return canvas;
+    }
+
+    private static final Dimension getHeightWidth(final String aImageID) throws URISyntaxException,
+            MalformedURLException, IOException {
+        final URL url = new URL(IIIF_SERVER + PathUtils.encodeIdentifier(aImageID) + "/info.json");
+        final HttpsURLConnection https = (HttpsURLConnection) url.openConnection();
+        final BufferedReader reader = new BufferedReader(new InputStreamReader(https.getInputStream()));
+        final StringBuilder sb = new StringBuilder();
+        final Dimension dimension = new Dimension();
+        final JsonObject json;
+
+        String line;
+
+        while ((line = reader.readLine()) != null) {
+            sb.append(line);
+        }
+
+        reader.close();
+        https.disconnect();
+
+        json = new JsonObject(sb.toString());
+        dimension.setSize(json.getInteger("width"), json.getInteger("height"));
+
+        return dimension;
     }
 
     private static final Sequence getSequence(final String aID, final int aCount) throws URISyntaxException {
@@ -152,14 +239,6 @@ public class CSVManifestor {
     private static final String getThumbnail(final String aID) throws URISyntaxException {
         // We query Solr for this, but we need to have ingested the images first
         return IIIF_SERVER + "thumbnail_for_" + PathUtils.encodeIdentifier(aID) + "_from_solr";
-    }
-
-    private static final int getHeight(final String aID) {
-        return 500;
-    }
-
-    private static final int getWidth(final String aID) {
-        return 500;
     }
 
     private static final String getCanvasName(final String aImagePath) {
