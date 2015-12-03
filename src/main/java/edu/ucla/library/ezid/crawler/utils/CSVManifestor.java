@@ -7,12 +7,15 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 import javax.net.ssl.HostnameVerifier;
@@ -22,7 +25,6 @@ import javax.net.ssl.SSLSession;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
-import org.codehaus.plexus.util.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +46,8 @@ import info.freelibrary.jiiify.iiif.presentation.model.other.MetadataLocalizedVa
 import info.freelibrary.jiiify.iiif.presentation.model.other.Resource;
 import info.freelibrary.jiiify.iiif.presentation.model.other.Service;
 import info.freelibrary.jiiify.util.PathUtils;
+import info.freelibrary.util.FileUtils;
+import info.freelibrary.util.StringUtils;
 
 import au.com.bytecode.opencsv.CSVReader;
 import io.vertx.core.json.JsonObject;
@@ -98,13 +102,19 @@ public class CSVManifestor {
 
     private static final String SERVER = "https://stage-images.library.ucla.edu";
 
-    private static final String IIIF_SERVER = SERVER + "/iiif/";
+    private static final String SERVICE_PREFIX = "/iiif/";
+
+    private static final String IIIF_SERVER = SERVER + SERVICE_PREFIX;
 
     private static final String IIIF_PROFILE = "http://iiif.io/api/image/2/level0.json";
 
     private static final String IIIF_CONTEXT = "http://iiif.io/api/image/2/context.json";
 
+    public CSVManifestor() {
+    }
+
     public static void main(final String[] args) throws IOException, URISyntaxException {
+        final SinaiComparator comparator = new CSVManifestor().new SinaiComparator();
         final CSVReader csvReader = new CSVReader(new FileReader(CSV));
         final List<String[]> sources = csvReader.readAll();
         final String thumbnailID = sources.get(0)[0]; // for now, just using first image
@@ -114,6 +124,9 @@ public class CSVManifestor {
         String canvasName = "";
         int canvasCount = 0;
         int startIndex = 0;
+
+        // Get our sources in the order we want (so color images have preference)
+        Collections.sort(sources, comparator);
 
         if (sequences.add(getSequence(MANUSCRIPT_ARK, 0))) {
             final List<Canvas> canvases = new ArrayList<Canvas>();
@@ -139,10 +152,12 @@ public class CSVManifestor {
 
                         final Image image = images.get(0);
                         final ImageResource resource = (ImageResource) image.getResource();
+                        final Service service = resource.getService();
 
                         canvas.setImages(images);
                         canvas.setWidth(resource.getWidth());
                         canvas.setHeight(resource.getHeight());
+                        canvas.setThumbnail(getThumbnail(getBareID(service.getId())));
                         canvases.add(canvas);
                     }
 
@@ -154,13 +169,14 @@ public class CSVManifestor {
             sequences.get(sequences.size() - 1).setCanvases(canvases);
         }
 
-        FileUtils.fileWrite(MANIFEST, "UTF-8", toJson(manifest));
+        org.codehaus.plexus.util.FileUtils.fileWrite(MANIFEST, "UTF-8", toJson(manifest));
         csvReader.close();
     }
 
     private static final Image getImage(final String aObjID, final String aImageID, final String aLabel,
             final String aOn, final int aCount) throws URISyntaxException, MalformedURLException, IOException {
         final String imageId = getID(IIIF_SERVER, PathUtils.encodeIdentifier(aObjID), "imageanno", aCount);
+        final String label = FileUtils.stripExt(new File(aLabel));
 
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug("Processing image: {}", imageId);
@@ -174,6 +190,7 @@ public class CSVManifestor {
         image.setOn(aOn);
         service.setProfile(IIIF_PROFILE);
         service.setContext(IIIF_CONTEXT);
+        service.setLabel(label);
         resource.setHeight(dims.height);
         resource.setWidth(dims.width);
         resource.setFormat("image/jpeg");
@@ -188,9 +205,11 @@ public class CSVManifestor {
         final String id = getID(IIIF_SERVER, PathUtils.encodeIdentifier(aID), "canvas", aCount);
         final Canvas canvas = new Canvas(id, aLabel, 0, 0);
 
-        canvas.setThumbnail(getThumbnail(aID));
-
         return canvas;
+    }
+
+    private static final String getBareID(final String aURI) {
+        return aURI.substring(aURI.indexOf(SERVICE_PREFIX) + SERVICE_PREFIX.length()).replace("/info.json", "");
     }
 
     private static final Dimension getHeightWidth(final String aImageID) throws URISyntaxException,
@@ -226,7 +245,8 @@ public class CSVManifestor {
         return sequence;
     }
 
-    private static final Manifest getManifest(final String aID, final String aThumbnail) throws URISyntaxException {
+    private static final Manifest getManifest(final String aID, final String aThumbnail) throws URISyntaxException,
+            IOException {
         final Manifest manifest = new Manifest(IIIF_SERVER + PathUtils.encodeIdentifier(aID) + "/manifest", aID);
 
         manifest.setLogo(SERVER + "/images/logos/iiif_logo.png");
@@ -236,9 +256,32 @@ public class CSVManifestor {
         return manifest;
     }
 
-    private static final String getThumbnail(final String aID) throws URISyntaxException {
-        // We query Solr for this, but we need to have ingested the images first
-        return IIIF_SERVER + "thumbnail_for_" + PathUtils.encodeIdentifier(aID) + "_from_solr";
+    private static final String getThumbnail(final String aID) throws URISyntaxException, MalformedURLException,
+            IOException {
+        final String solrTemplate = SERVER.replace("https", "http") + ":8983/solr/jiiify/select?q=\"{}\"&wt=json";
+        final URL url = new URL(StringUtils.format(solrTemplate, PathUtils.encodeIdentifier(aID)));
+        final HttpURLConnection http = (HttpURLConnection) url.openConnection();
+        final BufferedReader reader = new BufferedReader(new InputStreamReader(http.getInputStream()));
+        final StringBuilder sb = new StringBuilder();
+        final String thumbnail;
+        final JsonObject json;
+
+        String line;
+
+        while ((line = reader.readLine()) != null) {
+            sb.append(line);
+        }
+
+        reader.close();
+        http.disconnect();
+
+        json = new JsonObject(sb.toString());
+
+        // We're not doing any exception catching here... we expect it to be there or else we fail
+        thumbnail = json.getJsonObject("response").getJsonArray("docs").getJsonObject(0).getString(
+                "jiiify_thumbnail_s");
+
+        return IIIF_SERVER + thumbnail.replace("/iiif/", "");
     }
 
     private static final String getCanvasName(final String aImagePath) {
@@ -263,5 +306,37 @@ public class CSVManifestor {
         mapper.setSerializationInclusion(Include.NON_NULL);
 
         return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(manifest);
+    }
+
+    /**
+     * Comparator that sorts by file name except when one of the file names ends with _color.tiff, then that's given
+     * preference.
+     *
+     * @author Kevin S. Clarke <a href="mailto:ksclarke@ksclarke.io">ksclarke@ksclarke.io</a>
+     */
+    class SinaiComparator implements Comparator<String[]> {
+
+        @Override
+        public int compare(final String[] a1stSource, final String[] a2ndSource) {
+            final String[] splits1 = a1stSource[1].split("/");
+            final String[] splits2 = a2ndSource[1].split("/");
+            final String dirName1 = splits1[splits1.length - 2];
+            final String dirName2 = splits2[splits2.length - 2];
+            final String fileName1 = splits1[splits1.length - 1];
+            final String fileName2 = splits2[splits2.length - 1];
+            final String colorTIFF = "_color.tif";
+
+            if (dirName1.equals(dirName2)) {
+                if (fileName1.endsWith(colorTIFF)) {
+                    return -1;
+                } else if (fileName2.endsWith(colorTIFF)) {
+                    return 1;
+                } else {
+                    return fileName1.compareToIgnoreCase(fileName2);
+                }
+            } else {
+                return a1stSource[1].compareToIgnoreCase(a2ndSource[1]);
+            }
+        }
     }
 }
