@@ -16,9 +16,9 @@ import au.com.bytecode.opencsv.CSVWriter;
 
 public class InclusiveFilter {
 
-    private static final File SOURCE = new File("/home/kevin/sinai.csv");
+    private static final File SOURCE = new File("/home/kevin/syriac-arks.csv");
 
-    private static final File INCLUDES = new File("/home/kevin/sinai-includes.csv");
+    private static final File INCLUDES = new File("/home/kevin/syriac-includes.csv");
 
     private static final Logger LOGGER = LoggerFactory.getLogger(InclusiveFilter.class);
 
@@ -29,7 +29,7 @@ public class InclusiveFilter {
         final List<String> patterns = new ArrayList<String>();
         final CSVReader iReader = new CSVReader(new FileReader(INCLUDES));
         final CSVReader sReader = new CSVReader(new FileReader(SOURCE));
-        final CSVWriter writer = new CSVWriter(new FileWriter(new File("filter-out.csv")));
+        final CSVWriter writer = new CSVWriter(new FileWriter(new File("/home/kevin/syriac-filtered.csv")));
 
         String[] sourceData;
         String[] includes;

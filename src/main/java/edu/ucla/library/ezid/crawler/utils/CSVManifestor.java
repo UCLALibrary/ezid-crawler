@@ -93,12 +93,15 @@ public class CSVManifestor {
     private static final Logger LOGGER = LoggerFactory.getLogger(CSVManifestor.class);
 
     /* File of images to include in the manuscript file */
-    private static final File CSV = new File("/home/kevin/sinai-filtered.csv");
+    private static final File CSV = new File("/home/kevin/syriac-filtered.csv");
 
-    private static final File MANIFEST = new File("/home/kevin/sinai-manifest.json");
+    private static final File MANIFEST = new File("/home/kevin/syriac-manifest.json");
 
     /* ARK for the Manuscript itself -- this particular one is for Arabic_NF_8 */
-    private static final String MANUSCRIPT_ARK = "ark:/21198/z1kd1z25";
+    // private static final String MANUSCRIPT_ARK = "ark:/21198/z1kd1z25";
+
+    /* ARK for the Manuscript itself -- this particular one is for Arabic_NF_8 */
+    private static final String MANUSCRIPT_ARK = "ark:/21198/z1h70g33";
 
     private static final String SERVER = "https://stage-images.library.ucla.edu";
 
