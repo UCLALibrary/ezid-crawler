@@ -25,11 +25,11 @@ public class Crawler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Crawler.class);
 
-    private static final String EZID_USER = "ezid.username";
+    public static final String EZID_USER = "ezid.username";
 
-    private static final String EZID_PSWD = "ezid.password";
+    public static final String EZID_PSWD = "ezid.password";
 
-    private static final String ARK_SHOULDER = "ark.shoulder";
+    public static final String ARK_SHOULDER = "ark.shoulder";
 
     private final File mySourceDir;
 
