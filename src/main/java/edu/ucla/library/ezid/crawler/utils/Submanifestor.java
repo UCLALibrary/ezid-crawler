@@ -1,11 +1,15 @@
 
 package edu.ucla.library.ezid.crawler.utils;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -30,14 +34,23 @@ import info.freelibrary.jiiify.iiif.presentation.model.other.Service;
 import info.freelibrary.jiiify.util.PathUtils;
 import info.freelibrary.util.StringUtils;
 
+import au.com.bytecode.opencsv.CSVWriter;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 
 public class Submanifestor {
 
-    private static final String SOURCE = "/home/kevin/syriac-manifest.json";
+    // private static final String SOURCE = "/home/kevin/syriac-manifest.json";
 
-    private static final String MANIFEST_PATH = "/home/kevin/syriac-manifests/{}-manifest.json";
+    // private static final String MANIFEST_PATH = "/home/kevin/syriac-manifests/{}-manifest.json";
+
+    // private static final String MANIFESTS_CSV = "/home/kevin/syriac-manifests/syriac.csv";
+
+    private static final String SOURCE = "/home/kevin/sinai-manifest.json";
+
+    private static final String MANIFEST_PATH = "/home/kevin/sinai-manifests/{}-manifest.json";
+
+    private static final String MANIFESTS_CSV = "/home/kevin/sinai-manifests/sinai.csv";
 
     private static final String SERVER = "https://stage-images.library.ucla.edu";
 
@@ -50,9 +63,11 @@ public class Submanifestor {
     private static final String IIIF_CONTEXT = "http://iiif.io/api/image/2/context.json";
 
     public static void main(final String[] args) throws IOException, URISyntaxException {
+        final CSVWriter csvWriter = new CSVWriter(new FileWriter(MANIFESTS_CSV));
         final JsonObject source = new JsonObject(StringUtils.read(new File(SOURCE)));
         final JsonArray jsonCanvases = source.getJsonArray("sequences").getJsonObject(0).getJsonArray("canvases");
         final String objID = source.getString("label"); // object ARK
+        final List<String[]> csvData = new ArrayList<String[]>();
 
         for (int index = 0; index < jsonCanvases.size(); index++) {
             final JsonObject jsonCanvas = jsonCanvases.getJsonObject(index);
@@ -60,10 +75,11 @@ public class Submanifestor {
             final JsonArray images = jsonCanvas.getJsonArray("images");
             final String thumbnail = jsonCanvas.getString("thumbnail");
             final String id = objID + "/" + label;
-
             final Manifest manifest = getManifest(id, label, thumbnail);
-            final Sequence sequence = getSequence(id, label, 0);
+            final Sequence sequence = getSequence(id, label, 1);
             final List<Canvas> canvases = new ArrayList<Canvas>();
+
+            csvData.add(new String[] { id, label });
 
             for (int imgIndex = 0; imgIndex < images.size(); imgIndex++) {
                 final JsonObject jsonImage = images.getJsonObject(imgIndex);
@@ -72,10 +88,10 @@ public class Submanifestor {
                 final int height = jsonResource.getInteger("height").intValue();
                 final JsonObject jsonService = jsonResource.getJsonObject("service");
                 final String serviceLabel = jsonService.getString("label");
-                final String serviceId = jsonService.getString("@id");
-                final Canvas canvas = getCanvas(id, serviceLabel, imgIndex, width, height);
-
-                final String imageId = getID(IIIF_SERVER, PathUtils.encodeIdentifier(id), "imageanno", 0);
+                // Fix for bad master manifests -- shouldn't contain info.json in service ID
+                final String serviceId = jsonService.getString("@id").replace("/info.json", "");
+                final Canvas canvas = getCanvas(id, serviceLabel, imgIndex + 1, width, height);
+                final String imageId = getID(IIIF_SERVER, PathUtils.encodeIdentifier(id), "imageanno", 1);
                 final Image image = new Image(imageId);
                 final ImageResource resource = new ImageResource();
                 final Service service = new Service(serviceId);
@@ -92,6 +108,7 @@ public class Submanifestor {
                 canvas.setImages(Arrays.asList(new Image[] { image }));
 
                 if (!serviceLabel.endsWith("_color")) {
+                    canvas.setThumbnail(getThumbnail(getBareID(serviceId)));
                     canvases.add(canvas);
                 }
             }
@@ -106,6 +123,40 @@ public class Submanifestor {
             writer.close();
         }
 
+        csvWriter.writeAll(csvData);
+        csvWriter.close();
+    }
+
+    private static final String getBareID(final String aURI) {
+        return aURI.substring(aURI.indexOf(SERVICE_PREFIX) + SERVICE_PREFIX.length()).replace("/info.json", "");
+    }
+
+    private static final String getThumbnail(final String aID) throws URISyntaxException, MalformedURLException,
+            IOException {
+        final String solrTemplate = SERVER.replace("https", "http") + ":8983/solr/jiiify/select?q=\"{}\"&wt=json";
+        final URL url = new URL(StringUtils.format(solrTemplate, PathUtils.encodeIdentifier(aID)));
+        final HttpURLConnection http = (HttpURLConnection) url.openConnection();
+        final BufferedReader reader = new BufferedReader(new InputStreamReader(http.getInputStream()));
+        final StringBuilder sb = new StringBuilder();
+        final String thumbnail;
+        final JsonObject json;
+
+        String line;
+
+        while ((line = reader.readLine()) != null) {
+            sb.append(line);
+        }
+
+        reader.close();
+        http.disconnect();
+
+        json = new JsonObject(sb.toString());
+
+        // We're not doing any exception catching here... we expect it to be there or else we fail
+        thumbnail = json.getJsonObject("response").getJsonArray("docs").getJsonObject(0).getString(
+                "jiiify_thumbnail_s");
+
+        return IIIF_SERVER + thumbnail.replace("/iiif/", "");
     }
 
     private static final Canvas getCanvas(final String aID, final String aLabel, final int aCount, final int aWidth,
@@ -127,8 +178,7 @@ public class Submanifestor {
     }
 
     private static final Manifest getManifest(final String aID, final String aLabel, final String aThumbnail)
-            throws URISyntaxException,
-            IOException {
+            throws URISyntaxException, IOException {
         final Manifest manifest = new Manifest(IIIF_SERVER + PathUtils.encodeIdentifier(aID) + "/manifest", aLabel);
 
         manifest.setLogo(SERVER + "/images/logos/iiif_logo.png");
