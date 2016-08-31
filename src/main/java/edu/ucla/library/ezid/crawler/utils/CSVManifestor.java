@@ -57,16 +57,13 @@ public class CSVManifestor {
 	static {
 		final TrustManager[] trustAllCerts = new TrustManager[] { new X509TrustManager() {
 
-			@Override
 			public java.security.cert.X509Certificate[] getAcceptedIssuers() {
 				return new X509Certificate[0];
 			}
 
-			@Override
 			public void checkClientTrusted(final java.security.cert.X509Certificate[] certs, final String authType) {
 			}
 
-			@Override
 			public void checkServerTrusted(final java.security.cert.X509Certificate[] certs, final String authType) {
 			}
 		} };
@@ -81,7 +78,6 @@ public class CSVManifestor {
 
 		final HostnameVerifier allHostsValid = new HostnameVerifier() {
 
-			@Override
 			public boolean verify(final String hostname, final SSLSession session) {
 				return true;
 			}
@@ -102,11 +98,11 @@ public class CSVManifestor {
 
 	private static final String IIIF_CONTEXT = "http://iiif.io/api/image/2/context.json";
 
-	private String myManifestARK;
+	private final String myManifestARK;
 
-	private File myCSVFile;
+	private final File myCSVFile;
 
-	private File myManifestFile;
+	private final File myManifestFile;
 
 	public CSVManifestor(final File aCSVFile, final File aManifestFile, final String aARKIdentifier) {
 		myManifestARK = aARKIdentifier; /* ark:/21198/z1h70g33 */
@@ -162,12 +158,12 @@ public class CSVManifestor {
 			LOGGER.warn("Manifestor started without all the required arguments");
 			printUsageAndExit();
 		} else {
-			CSVManifestor manifestor = new CSVManifestor(cFile, mFile, ark);
+			final CSVManifestor manifestor = new CSVManifestor(cFile, mFile, ark);
 			manifestor.manifest(manifestor.new SinaiComparator());
 		}
 	}
 
-	private void manifest(SinaiComparator aComparator) throws IOException, URISyntaxException {
+	private void manifest(final SinaiComparator aComparator) throws IOException, URISyntaxException {
 		final CSVReader csvReader = new CSVReader(new FileReader(myCSVFile));
 		final List<String[]> sources = csvReader.readAll();
 		final String thumbnailID = sources.get(0)[0]; // for now, just using
@@ -372,7 +368,6 @@ public class CSVManifestor {
 	 */
 	class SinaiComparator implements Comparator<String[]> {
 
-		@Override
 		public int compare(final String[] a1stSource, final String[] a2ndSource) {
 			final String[] splits1 = a1stSource[1].split("/");
 			final String[] splits2 = a2ndSource[1].split("/");

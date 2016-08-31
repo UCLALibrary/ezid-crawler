@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import info.freelibrary.util.FileExtFileFilter;
 import info.freelibrary.util.FileUtils;
+import info.freelibrary.util.Stopwatch;
 import info.freelibrary.util.StringUtils;
 
 import au.com.bytecode.opencsv.CSVWriter;
@@ -45,6 +46,8 @@ public class Crawler {
 
     public static void main(final String[] args) throws IOException {
         final Properties properties = System.getProperties();
+        final Stopwatch timer = new Stopwatch();
+
         File dir = null;
         File out = null;
         String[] exts = null;
@@ -115,7 +118,10 @@ public class Crawler {
                 shoulder = properties.getProperty(ARK_SHOULDER);
             }
 
+            timer.start();
             new Crawler(dir, out, exts).crawl(username, password, shoulder);
+            timer.stop();
+            System.out.println("Runtime: " + timer.getMilliseconds());
         }
     }
 
