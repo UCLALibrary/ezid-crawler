@@ -1,7 +1,6 @@
 
 package edu.ucla.library.ezid.crawler.utils;
 
-import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -11,14 +10,12 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import info.freelibrary.util.StringUtils;
+
 import au.com.bytecode.opencsv.CSVReader;
 import au.com.bytecode.opencsv.CSVWriter;
 
 public class InclusiveFilter {
-
-    private static final File SOURCE = new File("/home/kevin/syriac-arks.csv");
-
-    private static final File INCLUDES = new File("/home/kevin/syriac-includes.csv");
 
     private static final Logger LOGGER = LoggerFactory.getLogger(InclusiveFilter.class);
 
@@ -27,9 +24,9 @@ public class InclusiveFilter {
 
     public static void main(final String[] args) throws IOException {
         final List<String> patterns = new ArrayList<String>();
-        final CSVReader iReader = new CSVReader(new FileReader(INCLUDES));
-        final CSVReader sReader = new CSVReader(new FileReader(SOURCE));
-        final CSVWriter writer = new CSVWriter(new FileWriter(new File("/home/kevin/syriac-filtered.csv")));
+        final CSVReader iReader = new CSVReader(new FileReader(StringUtils.format("{}_includes.csv", args[0])));
+        final CSVReader sReader = new CSVReader(new FileReader(StringUtils.format("{}_ezid.csv", args[0])));
+        final CSVWriter writer = new CSVWriter(new FileWriter(StringUtils.format("{}_filtered.csv", args[0])));
 
         String[] sourceData;
         String[] includes;
