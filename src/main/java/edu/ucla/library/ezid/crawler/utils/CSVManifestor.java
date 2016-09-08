@@ -56,65 +56,65 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 class ChoiceImageResource extends Resource {
 
-    protected Resource myDefault;
-    protected List<Resource> myItem;
+	protected Resource myDefault;
+	protected List<Resource> myItem;
 
-    public ChoiceImageResource() {
-        setType("oa:Choice");
-        myItem = new ArrayList<Resource>();
-    }
+	public ChoiceImageResource() {
+		setType("oa:Choice");
+		myItem = new ArrayList<Resource>();
+	}
 
-    public Resource getDefault() {
-        return myDefault;
-    }
+	public Resource getDefault() {
+		return myDefault;
+	}
 
-    public void setDefault(final Resource aDefault) {
-        myDefault = aDefault;
-    }
+	public void setDefault(final Resource aDefault) {
+		myDefault = aDefault;
+	}
 
-    public List<Resource> getItem() {
-        return myItem;
-    }
+	public List<Resource> getItem() {
+		return myItem;
+	}
 
-    public void addAltItem(final Resource aItem) {
-        myItem.add(aItem);
-    }
+	public void addAltItem(final Resource aItem) {
+		myItem.add(aItem);
+	}
 
 }
 
 class ImageResourceWithLabel extends ImageResource {
-    protected String myLabel;
-    public String getLabel() {
-        return myLabel;
-    }
-    public void setLabel(final String aLabel) {
-        myLabel = aLabel;
-    }
+	protected String myLabel;
+	public String getLabel() {
+		return myLabel;
+	}
+	public void setLabel(final String aLabel) {
+		myLabel = aLabel;
+	}
 }
 
 /*
 class CanvasFixed extends Canvas {
-    public CanvasFixed(final String aID, final String aLabel, final int aHeight, final int aWidth) {
+	public CanvasFixed(final String aID, final String aLabel, final int aHeight, final int aWidth) {
 
-        super(aID, aLabel, aHeight, aWidth);
-    }
-    public void setHeight(final int aHeight) {
-        myHeight = aHeight;
-    }
+		super(aID, aLabel, aHeight, aWidth);
+	}
+	public void setHeight(final int aHeight) {
+		myHeight = aHeight;
+	}
 }
 */
 
 abstract class ChoiceImageResourceMixIn {
-    @JsonProperty("@type")
-    abstract String getType();
+	@JsonProperty("@type")
+	abstract String getType();
 }
 
 /*
 class ChoiceImage extends Image {
-    protected ChoiceImageResource myChoiceImageResource;
-    public ChoiceImageResource getChoiceImageResource() {
-        return myChoiceImageResource;
-    }
+	protected ChoiceImageResource myChoiceImageResource;
+	public ChoiceImageResource getChoiceImageResource() {
+		return myChoiceImageResource;
+	}
 }
 */
 
@@ -170,16 +170,20 @@ public class CSVManifestor {
 
 	private final File myManifestFile;
 
-	public CSVManifestor(final File aCSVFile, final File aManifestFile, final String aARKIdentifier) {
+	private final File myThumbnailCSVFile;
+
+	public CSVManifestor(final File aCSVFile, final File aManifestFile, final String aARKIdentifier, final File aThumbnailCSVFile) {
 		myManifestARK = aARKIdentifier; /* ark:/21198/z1h70g33 */
 		myCSVFile = aCSVFile; /* /home/kevin/syriac-filtered.csv */
 		myManifestFile = aManifestFile; /* /home/kevin/syriac-manifest.json */
+		myThumbnailCSVFile = aThumbnailCSVFile;
 	}
 
 	public static void main(final String[] args) throws IOException, URISyntaxException {
 		File cFile = null;
 		File mFile = null;
 		String ark = null;
+		File tFile = null;
 
 		if (args.length == 0) {
 			LOGGER.warn("Manifestor started without any arguments");
@@ -217,6 +221,16 @@ public class CSVManifestor {
 				if (LOGGER.isDebugEnabled()) {
 					LOGGER.debug("Manuscript/manifest ARK: {}", ark);
 				}
+			} else if (args[index].equals("-t")) {
+				tFile = new File(args[++index]);
+
+				if (!tFile.exists()) {
+					LOGGER.error("Thumbnail CSV doesn't exist: {}", tFile);
+					System.exit(1);
+				} else if (tFile.exists() && !tFile.canRead()) {
+					LOGGER.error("Thumbnail CSV exists but can't be read: {}", tFile);
+					System.exit(1);
+				}
 			}
 		}
 
@@ -224,7 +238,7 @@ public class CSVManifestor {
 			LOGGER.warn("Manifestor started without all the required arguments");
 			printUsageAndExit();
 		} else {
-			final CSVManifestor manifestor = new CSVManifestor(cFile, mFile, ark);
+			final CSVManifestor manifestor = new CSVManifestor(cFile, mFile, ark, tFile);
 			manifestor.manifest(manifestor.new SinaiComparator());
 		}
 	}
@@ -237,70 +251,84 @@ public class CSVManifestor {
 		final Manifest manifest = getManifest(myManifestARK, thumbnailID);
 		final List<Sequence> sequences = manifest.getSequences();
 
-        // flag to let us know when to create a new canvas with images from startIndex to index
+		// flag to let us know when to create a new canvas with images from startIndex to index
 		String canvasName = "";
 
-        // used to create the canvas @id field
+		// used to create the canvas @id field
 		int canvasCount = 0;
 
-        // used to create the image @id field
-        int imagesCount = 0;
+		// used to create the image @id field
+		int imagesCount = 0;
 
-        // first position at which an image, that will go on the current canvas, exists
+		// first position at which an image, that will go on the current canvas, exists
 		int startIndex = 0;
 
 		// Get our sources in the order we want (so color images have
 		// preference)
 		Collections.sort(sources, aComparator);
 
-        // only one sequence in the manifest
+		// only one sequence in the manifest
 		if (sequences.add(getSequence(myManifestARK, 0))) {
 			final List<Canvas> canvases = new ArrayList<Canvas>();
 
-			for (int index = 0; index < sources.size(); index++) {
+			for (int index = 0; index < sources.size();) {
 				final String name = getCanvasName(sources.get(index)[1]);
 
-				if (!name.equals(canvasName)) {
+				// check if we are at the end of the list
+				if (!name.equals(canvasName) || index == sources.size() - 1) {
 					if (!canvasName.equals("")) {
 						final List<Image> images = new ArrayList<Image>();
-                        final ChoiceImageResource choiceImageResource = new ChoiceImageResource();
-                        ImageResource aResource;
+						final ChoiceImageResource choiceImageResource = new ChoiceImageResource();
+						ImageResource aResource;
 
-                        // build a ChoiceImageResource
-						for (int count = 1; startIndex <= index; startIndex++) {
+						// be sure to include the last item if we are at the end of the list
+						if (index == sources.size() - 1) {
+							index++;
+						}
+						// build a ChoiceImageResource
+						for (int count = 1; startIndex < index; startIndex++) {
 							final String[] source = sources.get(startIndex);
 
-                            // if count is 1, create a new resource under default
-                            aResource = getImageResource(source[0], source[1]);
-                            if (count == 1) {
-							    choiceImageResource.setDefault(aResource);
-                            }
-                            // if count is > 1, add a new resource to item
-                            else {
-                                choiceImageResource.addAltItem(aResource);
-                            }
-                            count++;
+							// if count is 1, create a new resource under default
+							aResource = getImageResource(source[0], source[1]);
+							if (count == 1) {
+								choiceImageResource.setDefault(aResource);
+							}
+							// if count is > 1, add a new resource to item
+							else {
+								choiceImageResource.addAltItem(aResource);
+							}
+							count++;
 						}
-                        
-                        // code must be ordered this way, because canvas height can only be set using the constructor
+						
+						// code must be ordered this way, because canvas height can only be set using the constructor
 						final Canvas canvas = getCanvas(myManifestARK, canvasName, ++canvasCount, ((ImageResource) choiceImageResource.getDefault()).getHeight(), ((ImageResource) choiceImageResource.getDefault()).getWidth());
 						if (LOGGER.isDebugEnabled()) {
 							LOGGER.debug("Processed canvas: {}", canvas.getId());
 						}
-				        final String canvasId = canvas.getId();
-                        final Image image = getImage(myManifestARK, canvasId, ++imagesCount, choiceImageResource);
-                        images.add(image);
+						final String canvasId = canvas.getId();
+						final Image image = getImage(myManifestARK, canvasId, ++imagesCount, choiceImageResource);
+						images.add(image);
 
 						canvas.setImages(images);
 
 						final Service service = choiceImageResource.getDefault().getService();
-						canvas.setThumbnail(getThumbnail(getBareID(service.getId())));
+
+
+						if (myThumbnailCSVFile != null) {
+							// TODO: fix
+							canvas.setThumbnail(searchForThumbnailURI(sources.get(0)[0]));
+						}
+						else {
+							canvas.setThumbnail(getThumbnail(getBareID(service.getId())));
+						}
 						canvases.add(canvas);
 					}
 
 					canvasName = name;
 					startIndex = index;
 				}
+				index++;
 			}
 
 			sequences.get(sequences.size() - 1).setCanvases(canvases);
@@ -310,15 +338,34 @@ public class CSVManifestor {
 		csvReader.close();
 	}
 
-    /**
-     * Returns an object that will go into a canvas's 'images' array.
-     *
-     * @param {String} aObjID       ARK of the manifest, used to generate the image's '@id'
-     * @param {string} aOn          A string that identifies the parent canvas
-     * @param {int} aCount          A number that uniquely identifies this image within the canvas
-     * @param {ChoiceImageResource} aCIR
-     * @return {Image}
-     */
+	/**
+	 * Go through the thumbnail CSV and find the URI for the ARK.
+	 */
+	private final String searchForThumbnailURI(final String aARK) throws IOException {
+
+		final CSVReader thumbnailCsvReader = new CSVReader(new FileReader(myThumbnailCSVFile));
+		final List<String[]> sources = thumbnailCsvReader.readAll();
+		String[] source;
+		for (int index = 0; index < sources.size(); index++) {
+			source = sources.get(index);
+			if (source[0].equals(aARK)) {
+				thumbnailCsvReader.close();
+				return source[1];
+			}
+		}
+		thumbnailCsvReader.close();
+		return "";
+	}
+
+	/**
+	 * Returns an object that will go into a canvas's 'images' array.
+	 *
+	 * @param {String} aObjID       ARK of the manifest, used to generate the image's '@id'
+	 * @param {string} aOn          A string that identifies the parent canvas
+	 * @param {int} aCount          A number that uniquely identifies this image within the canvas
+	 * @param {ChoiceImageResource} aCIR
+	 * @return {Image}
+	 */
 	private final Image getImage(final String aObjID, final String aOn, final int aCount, final ChoiceImageResource aChoiceImageResource) throws URISyntaxException, MalformedURLException, IOException {
 		final String imageId = getID(IIIF_SERVER, PathUtils.encodeIdentifier(aObjID), "imageanno", aCount);
 
@@ -334,14 +381,14 @@ public class CSVManifestor {
 		return image;
 	}
 
-    /**
-     * Returns an object that will go into a choice image's 'default' key, or into the array under its 'item' key.
-     *
-     * @param {String} aImageID ARK of the image
-     * @param {String} aLabel   A string (file path usually) from which to generate the resource's 'label'
-     * @return {ImageResourceWithLabel} (casted as ImageResource)
-     */
-    private final ImageResource getImageResource(final String aImageID, final String aLabel) throws URISyntaxException, MalformedURLException, IOException {
+	/**
+	 * Returns an object that will go into a choice image's 'default' key, or into the array under its 'item' key.
+	 *
+	 * @param {String} aImageID ARK of the image
+	 * @param {String} aLabel   A string (file path usually) from which to generate the resource's 'label'
+	 * @return {ImageResourceWithLabel} (casted as ImageResource)
+	 */
+	private final ImageResource getImageResource(final String aImageID, final String aLabel) throws URISyntaxException, MalformedURLException, IOException {
 		final String label = FileUtils.stripExt(new File(aLabel));
 
 		final ImageResourceWithLabel resource = new ImageResourceWithLabel();
@@ -357,18 +404,18 @@ public class CSVManifestor {
 		resource.setLabel(label);
 
 		return (ImageResource) resource;
-    }
+	}
 
-    /**
-     * Returns a canvas object.
-     *
-     * @param {Stringg} aID     ARK of the containing manifest
-     * @param {String} aLabel   Name for the canvas
-     * @param {int} aCount      Number that uniquely identifies this canvas in the sequence
-     * @param {int} aHeight     Height of the canvas
-     * @param {int} aWidth      Width of the canvas
-     * @return {Canvas}
-     */
+	/**
+	 * Returns a canvas object.
+	 *
+	 * @param {Stringg} aID     ARK of the containing manifest
+	 * @param {String} aLabel   Name for the canvas
+	 * @param {int} aCount      Number that uniquely identifies this canvas in the sequence
+	 * @param {int} aHeight     Height of the canvas
+	 * @param {int} aWidth      Width of the canvas
+	 * @return {Canvas}
+	 */
 	private final Canvas getCanvas(final String aID, final String aLabel, final int aCount, final int aHeight, final int aWidth)
 			throws URISyntaxException, MalformedURLException, IOException {
 		final String id = getID(IIIF_SERVER, PathUtils.encodeIdentifier(aID), "canvas", aCount);
@@ -401,8 +448,16 @@ public class CSVManifestor {
 
 		json = new JsonObject(sb.toString());
 		dimension.setSize(json.getInteger("width"), json.getInteger("height"));
+		
+		return dimension;
+
+/*
+        // use the following if there doesn't exist an info.json yet
+		final Dimension dimension = new Dimension();
+		dimension.setSize(8176, 6132);
 
 		return dimension;
+*/
 	}
 
 	private final Sequence getSequence(final String aID, final int aCount) throws URISyntaxException {
@@ -419,13 +474,18 @@ public class CSVManifestor {
 		final Manifest manifest = new Manifest(IIIF_SERVER + PathUtils.encodeIdentifier(aID) + "/manifest", aID);
 
 		manifest.setLogo(SERVER + "/images/logos/iiif_logo.png");
-		manifest.setThumbnail(getThumbnail(aThumbnail));
+		if (myThumbnailCSVFile != null) {
+			manifest.setThumbnail(searchForThumbnailURI(aThumbnail));
+		} else {
+			manifest.setThumbnail(getThumbnail(aThumbnail));
+		}
 		manifest.setSequences(new ArrayList<Sequence>());
 
 		return manifest;
 	}
 
 	private final String getThumbnail(final String aID) throws URISyntaxException, MalformedURLException, IOException {
+
 		final String solrTemplate = SERVER.replace("https", "http") + ":8983/solr/jiiify/select?q=\"{}\"&wt=json";
 		final URL url = new URL(StringUtils.format(solrTemplate, PathUtils.encodeIdentifier(aID)));
 		final HttpURLConnection http = (HttpURLConnection) url.openConnection();
@@ -453,7 +513,7 @@ public class CSVManifestor {
 		return IIIF_SERVER + thumbnail.replace("/iiif/", "");
 	}
 
-    private final String getCanvasName(final String aImagePath) {
+	private final String getCanvasName(final String aImagePath) {
 		final String[] parts = aImagePath.split("\\/");
 		return parts[parts.length - 2];
 	}
@@ -472,7 +532,7 @@ public class CSVManifestor {
 		mapper.addMixIn(MetadataLocalizedValue.class, MetadataLocalizedValueMixIn.class);
 		mapper.addMixIn(Resource.class, AbstractIiifResourceMixIn.class);
 		mapper.addMixIn(Service.class, ServiceMixIn.class);
-        mapper.addMixIn(ChoiceImageResource.class, AbstractIiifResourceMixIn.class);
+		mapper.addMixIn(ChoiceImageResource.class, AbstractIiifResourceMixIn.class);
 		mapper.setSerializationInclusion(Include.NON_NULL);
 
 		return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(manifest);
