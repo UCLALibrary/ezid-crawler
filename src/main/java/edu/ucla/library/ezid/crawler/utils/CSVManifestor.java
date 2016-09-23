@@ -43,7 +43,6 @@ import info.freelibrary.jiiify.iiif.presentation.model.Sequence;
 import info.freelibrary.jiiify.iiif.presentation.model.other.Image;
 import info.freelibrary.jiiify.iiif.presentation.model.other.ImageResource;
 import info.freelibrary.jiiify.iiif.presentation.model.other.Metadata;
-import info.freelibrary.jiiify.iiif.presentation.model.other.MetadataSimple;
 import info.freelibrary.jiiify.iiif.presentation.model.other.MetadataLocalizedValue;
 import info.freelibrary.jiiify.iiif.presentation.model.other.Resource;
 import info.freelibrary.jiiify.iiif.presentation.model.other.Service;
@@ -56,10 +55,12 @@ import io.vertx.core.json.JsonObject;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+/*
+ * An image resource for images with alternate resources, per IIIF Presentation 2.0
+ */
 class ChoiceImageResource extends Resource {
-
-	protected Resource myDefault;
-	protected List<Resource> myItem;
+	private Resource myDefault;
+	private final List<Resource> myItem;
 
 	public ChoiceImageResource() {
 		setType("oa:Choice");
@@ -81,12 +82,14 @@ class ChoiceImageResource extends Resource {
 	public void addAltItem(final Resource aItem) {
 		myItem.add(aItem);
 	}
-
 }
 
+/*
+ * The ImageResource class does not have label or thumbnail fields, so this adds those.
+ */
 class ImageResourceWithLabelAndThumbnail extends ImageResource {
-	protected String myLabel;
-    protected String myThumbnail;
+	private String myLabel;
+    private String myThumbnail;
     
 	public String getLabel() {
 		return myLabel;
@@ -104,6 +107,11 @@ class ImageResourceWithLabelAndThumbnail extends ImageResource {
     }
 }
 
+/*
+ * Used in place of info.freelibrary.jiiify.iiif.presentation.model.other.MetadataSimple,
+ * which doesn't have a getValue method. This problem caused the toJson function to omit 
+ * the myValue field.
+ */
 class MetadataSimpleWithGetter extends Metadata {
     private final String myValue;
 
@@ -161,9 +169,9 @@ public class CSVManifestor {
 
 	private static final String TEST_SERVER = "https://test-sinai-images.library.ucla.edu";
 
-	private static final String STAGE_SERVER = "https://test-sinai-images.library.ucla.edu";
+	private static final String STAGE_SERVER = "https://stage-sinai-images.library.ucla.edu";
 
-	private static final String PROD_SERVER = "https://test-sinai-images.library.ucla.edu";
+	private static final String PROD_SERVER = "https://sinai-images.library.ucla.edu";
 
 	private static final String SERVICE_PREFIX = "/iiif/";
 
@@ -193,6 +201,20 @@ public class CSVManifestor {
 
     private final int myHeight;
 
+    /*
+     * Constructor.
+     *
+     * @param {File} aImageCSVFile      CSV file that maps manuscript ARKs to the filepaths of image resources to include in the manifest
+     * @param {File} aLabelCSVFile      CSV file that maps manuscript ARKs to manuscript labels
+     * @param {File} aMetadataCSVFile   CSV file that maps manuscript ARKs to manuscript metadata
+     * @param {File} aThumbnailCSVFile  CSV file that maps image ARKs to thumbnail URLs
+     * @param {File} aManifestFile      output file to write to
+     * @param {String} aARKIdentifier   ARK to use for this manuscript
+     * @param {String} aServer          label of the server on which this manifest file will be hosted
+     * @param {String} aDimensions      width,height of the images (assuming they are all the same dimensions) - e.g. "788,999"
+     *
+     * aThumbnailCSVFile and aDimensions are optional, but they must either both be present or both be absent
+     */
 	public CSVManifestor(final File aImageCSVFile, final File aLabelCSVFile, final File aMetadataCSVFile, final File aThumbnailCSVFile, final File aManifestFile, final String aARKIdentifier, final String aServer, final String aDimensions) throws IOException {
 		myImageCSVFile = aImageCSVFile;
 		myLabelCSVFile = aLabelCSVFile;
@@ -318,7 +340,6 @@ public class CSVManifestor {
 			}
 		}
 
-        // tFile is optional
 		if (cFile == null || lFile == null || mFile == null ||  oFile == null || ark == null || server == null || (tFile == null && dimensions != null || tFile != null && dimensions == null)) {
 			LOGGER.warn("Manifestor started without all the required arguments");
 			printUsageAndExit();
@@ -465,10 +486,8 @@ public class CSVManifestor {
 		}
 
 		final Image image = new Image(imageId);
-
 		image.setOn(aOn);
 		image.setResource((Resource) aChoiceImageResource);
-
 		return image;
 	}
 
@@ -508,10 +527,10 @@ public class CSVManifestor {
 	 * Returns a canvas object.
 	 *
 	 * @param {String} aID     ARK of the containing manifest
-	 * @param {String} aLabel   Name for the canvas
-	 * @param {int} aCount      Number that uniquely identifies this canvas in the sequence
-	 * @param {int} aHeight     Height of the canvas
-	 * @param {int} aWidth      Width of the canvas
+	 * @param {String} aLabel  Name for the canvas
+	 * @param {int} aCount     Number that uniquely identifies this canvas in the sequence
+	 * @param {int} aHeight    Height of the canvas
+	 * @param {int} aWidth     Width of the canvas
 	 * @return {Canvas}
 	 */
 	private final Canvas getCanvas(final String aID, final String aLabel, final int aCount, final int aHeight, final int aWidth)
