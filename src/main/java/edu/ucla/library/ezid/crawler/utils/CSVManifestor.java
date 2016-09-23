@@ -42,6 +42,8 @@ import info.freelibrary.jiiify.iiif.presentation.model.Manifest;
 import info.freelibrary.jiiify.iiif.presentation.model.Sequence;
 import info.freelibrary.jiiify.iiif.presentation.model.other.Image;
 import info.freelibrary.jiiify.iiif.presentation.model.other.ImageResource;
+import info.freelibrary.jiiify.iiif.presentation.model.other.Metadata;
+import info.freelibrary.jiiify.iiif.presentation.model.other.MetadataSimple;
 import info.freelibrary.jiiify.iiif.presentation.model.other.MetadataLocalizedValue;
 import info.freelibrary.jiiify.iiif.presentation.model.other.Resource;
 import info.freelibrary.jiiify.iiif.presentation.model.other.Service;
@@ -82,41 +84,44 @@ class ChoiceImageResource extends Resource {
 
 }
 
-class ImageResourceWithLabel extends ImageResource {
+class ImageResourceWithLabelAndThumbnail extends ImageResource {
 	protected String myLabel;
+    protected String myThumbnail;
+    
 	public String getLabel() {
 		return myLabel;
 	}
 	public void setLabel(final String aLabel) {
 		myLabel = aLabel;
 	}
+    
+    public String getThumbnail() {
+        return myThumbnail;
+    }
+
+    public void setThumbnail(final String aThumbnail) {
+        myThumbnail = aThumbnail;
+    }
 }
 
-/*
-class CanvasFixed extends Canvas {
-	public CanvasFixed(final String aID, final String aLabel, final int aHeight, final int aWidth) {
+class MetadataSimpleWithGetter extends Metadata {
+    private final String myValue;
 
-		super(aID, aLabel, aHeight, aWidth);
-	}
-	public void setHeight(final int aHeight) {
-		myHeight = aHeight;
-	}
-}
-*/
+    /**
+     * Creates a simple metadata element.
+     *
+     * @param aLabel A metadata label
+     * @param aValue A metadata value
+     */
+    public MetadataSimpleWithGetter(final String aLabel, final String aValue) {
+        super(aLabel);
+        myValue = aValue;
+    }
 
-abstract class ChoiceImageResourceMixIn {
-	@JsonProperty("@type")
-	abstract String getType();
+    public String getValue() {
+        return myValue;
+    }
 }
-
-/*
-class ChoiceImage extends Image {
-	protected ChoiceImageResource myChoiceImageResource;
-	public ChoiceImageResource getChoiceImageResource() {
-		return myChoiceImageResource;
-	}
-}
-*/
 
 public class CSVManifestor {
 
@@ -154,36 +159,73 @@ public class CSVManifestor {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(CSVManifestor.class);
 
-	private static final String SERVER = "https://stage-images.library.ucla.edu";
+	private static final String TEST_SERVER = "https://test-sinai-images.library.ucla.edu";
+
+	private static final String STAGE_SERVER = "https://test-sinai-images.library.ucla.edu";
+
+	private static final String PROD_SERVER = "https://test-sinai-images.library.ucla.edu";
 
 	private static final String SERVICE_PREFIX = "/iiif/";
-
-	private static final String IIIF_SERVER = SERVER + SERVICE_PREFIX;
 
 	private static final String IIIF_PROFILE = "http://iiif.io/api/image/2/level0.json";
 
 	private static final String IIIF_CONTEXT = "http://iiif.io/api/image/2/context.json";
 
-	private final String myManifestARK;
+	private final File myImageCSVFile;
 
-	private final File myCSVFile;
+	private final File myLabelCSVFile;
 
-	private final File myManifestFile;
+	private final File myMetadataCSVFile;
 
 	private final File myThumbnailCSVFile;
 
-	public CSVManifestor(final File aCSVFile, final File aManifestFile, final String aARKIdentifier, final File aThumbnailCSVFile) {
-		myManifestARK = aARKIdentifier; /* ark:/21198/z1h70g33 */
-		myCSVFile = aCSVFile; /* /home/kevin/syriac-filtered.csv */
-		myManifestFile = aManifestFile; /* /home/kevin/syriac-manifest.json */
+	private final File myManifestFile;
+
+	private final String myManifestARK;
+
+    private final String myManifestLabel;
+    
+	private final String myServer;
+ 
+	private final String myIiifServer;
+
+    private final int myWidth;
+
+    private final int myHeight;
+
+	public CSVManifestor(final File aImageCSVFile, final File aLabelCSVFile, final File aMetadataCSVFile, final File aThumbnailCSVFile, final File aManifestFile, final String aARKIdentifier, final String aServer, final String aDimensions) throws IOException {
+		myImageCSVFile = aImageCSVFile;
+		myLabelCSVFile = aLabelCSVFile;
+		myMetadataCSVFile = aMetadataCSVFile;
 		myThumbnailCSVFile = aThumbnailCSVFile;
+
+        myManifestFile = aManifestFile;
+
+		myManifestARK = aARKIdentifier;
+        // TODO: bad magic number, because we know that the label CSV only has two rows
+        myManifestLabel = searchCSV(aLabelCSVFile, aARKIdentifier)[1];
+
+        myServer = aServer;
+        myIiifServer = aServer + SERVICE_PREFIX;
+
+        if (aDimensions != null) {
+            myWidth = Integer.parseInt(aDimensions.split(",")[0]);
+            myHeight = Integer.parseInt(aDimensions.split(",")[1]);
+        } else {
+            myWidth = -1;
+            myHeight = -1;
+        }
 	}
 
 	public static void main(final String[] args) throws IOException, URISyntaxException {
 		File cFile = null;
-		File mFile = null;
-		String ark = null;
+        File lFile = null;
+        File mFile = null;
 		File tFile = null;
+		File oFile = null;
+		String ark = null;
+        String server = null;
+        String dimensions = null;
 
 		if (args.length == 0) {
 			LOGGER.warn("Manifestor started without any arguments");
@@ -195,31 +237,31 @@ public class CSVManifestor {
 				cFile = new File(args[++index]);
 
 				if (!cFile.exists()) {
-					LOGGER.error("Source CSV doesn't exist: {}", cFile);
+					LOGGER.error("Image CSV doesn't exist: {}", cFile);
 					System.exit(1);
 				} else if (cFile.exists() && !cFile.canRead()) {
-					LOGGER.error("Source CSV exists but can't be read: {}", cFile);
+					LOGGER.error("Image CSV exists but can't be read: {}", cFile);
+					System.exit(1);
+				}
+			} else if (args[index].equals("-l")) {
+				lFile = new File(args[++index]);
+
+				if (!lFile.exists()) {
+					LOGGER.error("Label CSV doesn't exist: {}", lFile);
+					System.exit(1);
+				} else if (lFile.exists() && !lFile.canRead()) {
+					LOGGER.error("Label CSV exists but can't be read: {}", lFile);
 					System.exit(1);
 				}
 			} else if (args[index].equals("-m")) {
 				mFile = new File(args[++index]);
 
-				if (mFile.exists() && !mFile.canWrite()) {
-					LOGGER.error("Output manifest file exists and can't be overwritten: {}", mFile);
+				if (!mFile.exists()) {
+					LOGGER.error("Metadata CSV doesn't exist: {}", mFile);
 					System.exit(1);
-				} else {
-					final File parent = mFile.getParentFile();
-
-					if (!parent.exists() && !parent.mkdirs()) {
-						LOGGER.error("Manifest file's parent dir doesn't exist and can't be created: {}", parent);
-						System.exit(1);
-					}
-				}
-			} else if (args[index].equals("-a")) {
-				ark = args[++index];
-
-				if (LOGGER.isDebugEnabled()) {
-					LOGGER.debug("Manuscript/manifest ARK: {}", ark);
+				} else if (mFile.exists() && !mFile.canRead()) {
+					LOGGER.error("Metadata CSV exists but can't be read: {}", mFile);
+					System.exit(1);
 				}
 			} else if (args[index].equals("-t")) {
 				tFile = new File(args[++index]);
@@ -231,24 +273,67 @@ public class CSVManifestor {
 					LOGGER.error("Thumbnail CSV exists but can't be read: {}", tFile);
 					System.exit(1);
 				}
+			} else if (args[index].equals("-o")) {
+				oFile = new File(args[++index]);
+
+				if (oFile.exists() && !oFile.canWrite()) {
+					LOGGER.error("Output manifest file exists and can't be overwritten: {}", oFile);
+					System.exit(1);
+				} else {
+					final File parent = oFile.getParentFile();
+
+					if (!parent.exists() && !parent.mkdirs()) {
+						LOGGER.error("Manifest file's parent dir doesn't exist and can't be created: {}", parent);
+						System.exit(1);
+					}
+				}
+			} else if (args[index].equals("-d")) {
+				dimensions = args[++index];
+
+				if (LOGGER.isDebugEnabled()) {
+					LOGGER.debug("Image dimensions: {}", dimensions);
+				}
+			} else if (args[index].equals("-a")) {
+				ark = args[++index];
+
+				if (LOGGER.isDebugEnabled()) {
+					LOGGER.debug("Manuscript/manifest ARK: {}", ark);
+				}
+			} else if (args[index].equals("-s")) {
+				final String arg = args[++index].toLowerCase();
+                if (arg.equals("test")) {
+                    server = TEST_SERVER;
+                } else if (arg.equals("stage")) {
+                    server = STAGE_SERVER;
+                } else if (arg.equals("prod")) {
+                    server = PROD_SERVER;
+                } else {
+                    LOGGER.error("Unknown server label: {}", arg);
+                    System.exit(1);
+                }
+
+				if (LOGGER.isDebugEnabled()) {
+					LOGGER.debug("Server: {}", server);
+				}
 			}
 		}
 
-		if (cFile == null || mFile == null || ark == null) {
+        // tFile is optional
+		if (cFile == null || lFile == null || mFile == null ||  oFile == null || ark == null || server == null || (tFile == null && dimensions != null || tFile != null && dimensions == null)) {
 			LOGGER.warn("Manifestor started without all the required arguments");
 			printUsageAndExit();
 		} else {
-			final CSVManifestor manifestor = new CSVManifestor(cFile, mFile, ark, tFile);
+			final CSVManifestor manifestor = new CSVManifestor(cFile, lFile, mFile, tFile, oFile, ark, server, dimensions);
 			manifestor.manifest(manifestor.new SinaiComparator());
 		}
 	}
 
 	private void manifest(final SinaiComparator aComparator) throws IOException, URISyntaxException {
-		final CSVReader csvReader = new CSVReader(new FileReader(myCSVFile));
+		final CSVReader csvReader = new CSVReader(new FileReader(myImageCSVFile));
 		final List<String[]> sources = csvReader.readAll();
 		final String thumbnailID = sources.get(0)[0]; // for now, just using
 														// first image
-		final Manifest manifest = getManifest(myManifestARK, thumbnailID);
+		final Manifest manifest = getManifest(myManifestARK, thumbnailID, myManifestLabel);
 		final List<Sequence> sequences = manifest.getSequences();
 
 		// flag to let us know when to create a new canvas with images from startIndex to index
@@ -262,6 +347,9 @@ public class CSVManifestor {
 
 		// first position at which an image, that will go on the current canvas, exists
 		int startIndex = 0;
+
+        // copy of startIndex
+        int canvasThumbnailIndex;
 
 		// Get our sources in the order we want (so color images have
 		// preference)
@@ -286,6 +374,7 @@ public class CSVManifestor {
 							index++;
 						}
 						// build a ChoiceImageResource
+                        canvasThumbnailIndex = startIndex;
 						for (int count = 1; startIndex < index; startIndex++) {
 							final String[] source = sources.get(startIndex);
 
@@ -316,8 +405,8 @@ public class CSVManifestor {
 
 
 						if (myThumbnailCSVFile != null) {
-							// TODO: fix
-							canvas.setThumbnail(searchForThumbnailURI(sources.get(0)[0]));
+                            // TODO: bad magic number, because we know that the thumbnail CSV only has two rows
+							canvas.setThumbnail(searchCSV(myThumbnailCSVFile, sources.get(canvasThumbnailIndex)[0])[1]);
 						}
 						else {
 							canvas.setThumbnail(getThumbnail(getBareID(service.getId())));
@@ -339,22 +428,24 @@ public class CSVManifestor {
 	}
 
 	/**
-	 * Go through the thumbnail CSV and find the URI for the ARK.
+	 * Go through the given CSV and find the value that corresponds to the given ARK.
+     *
+     * @return {Array} that represents the row, or empty if none is found
 	 */
-	private final String searchForThumbnailURI(final String aARK) throws IOException {
+	private final String[] searchCSV(final File aFile, final String aARK) throws IOException {
 
-		final CSVReader thumbnailCsvReader = new CSVReader(new FileReader(myThumbnailCSVFile));
-		final List<String[]> sources = thumbnailCsvReader.readAll();
+		final CSVReader aCsvReader = new CSVReader(new FileReader(aFile));
+		final List<String[]> sources = aCsvReader.readAll();
 		String[] source;
 		for (int index = 0; index < sources.size(); index++) {
 			source = sources.get(index);
 			if (source[0].equals(aARK)) {
-				thumbnailCsvReader.close();
-				return source[1];
+				aCsvReader.close();
+				return source;
 			}
 		}
-		thumbnailCsvReader.close();
-		return "";
+		aCsvReader.close();
+		return new String[0];
 	}
 
 	/**
@@ -367,7 +458,7 @@ public class CSVManifestor {
 	 * @return {Image}
 	 */
 	private final Image getImage(final String aObjID, final String aOn, final int aCount, final ChoiceImageResource aChoiceImageResource) throws URISyntaxException, MalformedURLException, IOException {
-		final String imageId = getID(IIIF_SERVER, PathUtils.encodeIdentifier(aObjID), "imageanno", aCount);
+		final String imageId = getID(myIiifServer, PathUtils.encodeIdentifier(aObjID), "imageanno", aCount);
 
 		if (LOGGER.isDebugEnabled()) {
 			LOGGER.debug("Processing image: {}", imageId);
@@ -386,13 +477,13 @@ public class CSVManifestor {
 	 *
 	 * @param {String} aImageID ARK of the image
 	 * @param {String} aLabel   A string (file path usually) from which to generate the resource's 'label'
-	 * @return {ImageResourceWithLabel} (casted as ImageResource)
+	 * @return {ImageResourceWithLabelAndThumbnail} (casted as ImageResource)
 	 */
 	private final ImageResource getImageResource(final String aImageID, final String aLabel) throws URISyntaxException, MalformedURLException, IOException {
 		final String label = FileUtils.stripExt(new File(aLabel));
 
-		final ImageResourceWithLabel resource = new ImageResourceWithLabel();
-		final Service service = new Service(IIIF_SERVER + PathUtils.encodeIdentifier(aImageID));
+		final ImageResourceWithLabelAndThumbnail resource = new ImageResourceWithLabelAndThumbnail();
+		final Service service = new Service(myIiifServer + PathUtils.encodeIdentifier(aImageID));
 		final Dimension dims = getHeightWidth(aImageID);
 
 		service.setProfile(IIIF_PROFILE);
@@ -402,6 +493,13 @@ public class CSVManifestor {
 		resource.setFormat("image/jpeg");
 		resource.setService(service);
 		resource.setLabel(label);
+		if (myThumbnailCSVFile != null) {
+            // TODO: bad magic number, because we know that the thumbnail CSV only has two rows
+			resource.setThumbnail(searchCSV(myThumbnailCSVFile, aImageID)[1]);
+        } else {
+            // get from solr
+            resource.setThumbnail(getThumbnail(getBareID(service.getId())));
+        }
 
 		return (ImageResource) resource;
 	}
@@ -409,7 +507,7 @@ public class CSVManifestor {
 	/**
 	 * Returns a canvas object.
 	 *
-	 * @param {Stringg} aID     ARK of the containing manifest
+	 * @param {String} aID     ARK of the containing manifest
 	 * @param {String} aLabel   Name for the canvas
 	 * @param {int} aCount      Number that uniquely identifies this canvas in the sequence
 	 * @param {int} aHeight     Height of the canvas
@@ -418,7 +516,7 @@ public class CSVManifestor {
 	 */
 	private final Canvas getCanvas(final String aID, final String aLabel, final int aCount, final int aHeight, final int aWidth)
 			throws URISyntaxException, MalformedURLException, IOException {
-		final String id = getID(IIIF_SERVER, PathUtils.encodeIdentifier(aID), "canvas", aCount);
+		final String id = getID(myIiifServer, PathUtils.encodeIdentifier(aID), "canvas", aCount);
 		final Canvas canvas = new Canvas(id, aLabel, aHeight, aWidth);
 
 		return canvas;
@@ -430,7 +528,10 @@ public class CSVManifestor {
 
 	private final Dimension getHeightWidth(final String aImageID)
 			throws URISyntaxException, MalformedURLException, IOException {
-		final URL url = new URL(IIIF_SERVER + PathUtils.encodeIdentifier(aImageID) + "/info.json");
+
+        // get from info.json
+        if (myThumbnailCSVFile == null) {
+		final URL url = new URL(myIiifServer + PathUtils.encodeIdentifier(aImageID) + "/info.json");
 		final HttpsURLConnection https = (HttpsURLConnection) url.openConnection();
 		final BufferedReader reader = new BufferedReader(new InputStreamReader(https.getInputStream()));
 		final StringBuilder sb = new StringBuilder();
@@ -450,43 +551,60 @@ public class CSVManifestor {
 		dimension.setSize(json.getInteger("width"), json.getInteger("height"));
 		
 		return dimension;
+        } else {
 
-/*
         // use the following if there doesn't exist an info.json yet
 		final Dimension dimension = new Dimension();
-		dimension.setSize(8176, 6132);
+        // TODO: bad magic numbers
+		dimension.setSize(myWidth, myHeight);
 
 		return dimension;
-*/
+        }
 	}
 
 	private final Sequence getSequence(final String aID, final int aCount) throws URISyntaxException {
 		final Sequence sequence = new Sequence();
 
-		sequence.setId(getID(IIIF_SERVER, PathUtils.encodeIdentifier(aID), "sequence", aCount));
+		sequence.setId(getID(myIiifServer, PathUtils.encodeIdentifier(aID), "sequence", aCount));
 		sequence.setLabel(aID);
 
 		return sequence;
 	}
 
-	private final Manifest getManifest(final String aID, final String aThumbnail)
+	private final Manifest getManifest(final String aID, final String aThumbnail, final String aLabel)
 			throws URISyntaxException, IOException {
-		final Manifest manifest = new Manifest(IIIF_SERVER + PathUtils.encodeIdentifier(aID) + "/manifest", aID);
+		final Manifest manifest = new Manifest(myIiifServer + PathUtils.encodeIdentifier(aID) + "/manifest", aLabel);
 
-		manifest.setLogo(SERVER + "/images/logos/iiif_logo.png");
+		manifest.setLogo(myServer + "/images/logos/iiif_logo.png");
 		if (myThumbnailCSVFile != null) {
-			manifest.setThumbnail(searchForThumbnailURI(aThumbnail));
+            // TODO: bad magic number, because we know that the thumbnail CSV only has two rows
+			manifest.setThumbnail(searchCSV(myThumbnailCSVFile, aThumbnail)[1]);
+        // get from solr
 		} else {
 			manifest.setThumbnail(getThumbnail(aThumbnail));
 		}
 		manifest.setSequences(new ArrayList<Sequence>());
+        manifest.setMetadata(getManifestMetadata(aID));
 
 		return manifest;
 	}
 
+    private final ArrayList<Metadata> getManifestMetadata(final String aID) throws IOException {
+        ArrayList<Metadata> aMetadata = new ArrayList<Metadata>();
+        String[] CSVHeaders = {"Content", "Extent", "Date", "Condition", "Described in", "Repository"};
+        String[] CSVRow = searchCSV(myMetadataCSVFile, aID);
+
+        if (CSVHeaders.length == CSVRow.length - 1) {
+            for (int i = 0; i < CSVHeaders.length; i++) {
+                aMetadata.add( new MetadataSimpleWithGetter(CSVHeaders[i], CSVRow[i+1]));
+            }
+        }
+        return aMetadata;
+    }
+
 	private final String getThumbnail(final String aID) throws URISyntaxException, MalformedURLException, IOException {
 
-		final String solrTemplate = SERVER.replace("https", "http") + ":8983/solr/jiiify/select?q=\"{}\"&wt=json";
+		final String solrTemplate = myServer.replace("https", "http") + ":8983/solr/jiiify/select?q=\"{}\"&wt=json";
 		final URL url = new URL(StringUtils.format(solrTemplate, PathUtils.encodeIdentifier(aID)));
 		final HttpURLConnection http = (HttpURLConnection) url.openConnection();
 		final BufferedReader reader = new BufferedReader(new InputStreamReader(http.getInputStream()));
@@ -510,7 +628,7 @@ public class CSVManifestor {
 		thumbnail = json.getJsonObject("response").getJsonArray("docs").getJsonObject(0)
 				.getString("jiiify_thumbnail_s");
 
-		return IIIF_SERVER + thumbnail.replace("/iiif/", "");
+		return myIiifServer + thumbnail.replace("/iiif/", "");
 	}
 
 	private final String getCanvasName(final String aImagePath) {
@@ -533,6 +651,7 @@ public class CSVManifestor {
 		mapper.addMixIn(Resource.class, AbstractIiifResourceMixIn.class);
 		mapper.addMixIn(Service.class, ServiceMixIn.class);
 		mapper.addMixIn(ChoiceImageResource.class, AbstractIiifResourceMixIn.class);
+		mapper.addMixIn(MetadataSimpleWithGetter.class, AbstractIiifResourceMixIn.class);
 		mapper.setSerializationInclusion(Include.NON_NULL);
 
 		return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(manifest);
@@ -572,9 +691,10 @@ public class CSVManifestor {
 
 	private static final void printUsageAndExit() {
 		System.err.println();
-		System.err.println("Usage: -c [path to source CSV] -m [path to output manifest] -a [Archival Resource Key]");
+		System.err.println("Usage:\n    -c [path to source CSV]\n    -l [path to label CSV]\n    -m [path to metadata CSV]\n    -t [path to thumbnail CSV]\n    -o [path to output manifest]\n    -a [Archival Resource Key]\n    -s [server (test, stage, prod)]\n    -d [dimensions (width,height)]\n");
+		System.err.println("    -t and -d must both be either present or absent\n");
 		System.err.println(
-				"  For example: java -jar ezid-crawler.jar -c \"/home/kevin/syriac-filtered.csv\" -m \"/home/kevin/syriac-manifest.json\" -a \"ark:/21198/z1h70g33\"");
+				"For example: java -jar ezid-crawler.jar -c \"/home/kevin/syriac-filtered.csv\" -l \"/home/kevin/manifest-labels.csv\" -m \"/home/kevin/manifest-metadata.csv\" -t \"/home/kevin/first-five-thumbnails.csv\" -o \"/home/kevin/manifest.json\" -a \"ark:/21198/z1h70g33\" -s \"stage\" -d \"8000,6000\"");
 		System.err.println();
 		System.exit(1);
 	}
