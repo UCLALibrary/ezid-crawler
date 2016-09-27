@@ -14,6 +14,7 @@ import java.net.URL;
 import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Arrays;    
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -181,8 +182,6 @@ public class CSVManifestor {
 
 	private final File myImageCSVFile;
 
-	private final File myLabelCSVFile;
-
 	private final File myMetadataCSVFile;
 
 	private final File myThumbnailCSVFile;
@@ -205,7 +204,6 @@ public class CSVManifestor {
      * Constructor.
      *
      * @param {File} aImageCSVFile      CSV file that maps manuscript ARKs to the filepaths of image resources to include in the manifest
-     * @param {File} aLabelCSVFile      CSV file that maps manuscript ARKs to manuscript labels
      * @param {File} aMetadataCSVFile   CSV file that maps manuscript ARKs to manuscript metadata
      * @param {File} aThumbnailCSVFile  CSV file that maps image ARKs to thumbnail URLs
      * @param {File} aManifestFile      output file to write to
@@ -215,17 +213,16 @@ public class CSVManifestor {
      *
      * aThumbnailCSVFile and aDimensions are optional, but they must either both be present or both be absent
      */
-	public CSVManifestor(final File aImageCSVFile, final File aLabelCSVFile, final File aMetadataCSVFile, final File aThumbnailCSVFile, final File aManifestFile, final String aARKIdentifier, final String aServer, final String aDimensions) throws IOException {
+	public CSVManifestor(final File aImageCSVFile, final File aMetadataCSVFile, final File aThumbnailCSVFile, final File aManifestFile, final String aARKIdentifier, final String aServer, final String aDimensions) throws IOException {
 		myImageCSVFile = aImageCSVFile;
-		myLabelCSVFile = aLabelCSVFile;
 		myMetadataCSVFile = aMetadataCSVFile;
 		myThumbnailCSVFile = aThumbnailCSVFile;
 
         myManifestFile = aManifestFile;
 
 		myManifestARK = aARKIdentifier;
-        // TODO: bad magic number, because we know that the label CSV only has two rows
-        myManifestLabel = searchCSV(aLabelCSVFile, aARKIdentifier)[1];
+        // TODO: bad magic number, because the 
+        myManifestLabel = getCSVRowField(aMetadataCSVFile, aARKIdentifier, "Title");
 
         myServer = aServer;
         myIiifServer = aServer + SERVICE_PREFIX;
@@ -241,7 +238,6 @@ public class CSVManifestor {
 
 	public static void main(final String[] args) throws IOException, URISyntaxException {
 		File cFile = null;
-        File lFile = null;
         File mFile = null;
 		File tFile = null;
 		File oFile = null;
@@ -263,16 +259,6 @@ public class CSVManifestor {
 					System.exit(1);
 				} else if (cFile.exists() && !cFile.canRead()) {
 					LOGGER.error("Image CSV exists but can't be read: {}", cFile);
-					System.exit(1);
-				}
-			} else if (args[index].equals("-l")) {
-				lFile = new File(args[++index]);
-
-				if (!lFile.exists()) {
-					LOGGER.error("Label CSV doesn't exist: {}", lFile);
-					System.exit(1);
-				} else if (lFile.exists() && !lFile.canRead()) {
-					LOGGER.error("Label CSV exists but can't be read: {}", lFile);
 					System.exit(1);
 				}
 			} else if (args[index].equals("-m")) {
@@ -340,11 +326,11 @@ public class CSVManifestor {
 			}
 		}
 
-		if (cFile == null || lFile == null || mFile == null ||  oFile == null || ark == null || server == null || (tFile == null && dimensions != null || tFile != null && dimensions == null)) {
+		if (cFile == null || mFile == null ||  oFile == null || ark == null || server == null || (tFile == null && dimensions != null || tFile != null && dimensions == null)) {
 			LOGGER.warn("Manifestor started without all the required arguments");
 			printUsageAndExit();
 		} else {
-			final CSVManifestor manifestor = new CSVManifestor(cFile, lFile, mFile, tFile, oFile, ark, server, dimensions);
+			final CSVManifestor manifestor = new CSVManifestor(cFile, mFile, tFile, oFile, ark, server, dimensions);
 			manifestor.manifest(manifestor.new SinaiComparator());
 		}
 	}
@@ -427,7 +413,7 @@ public class CSVManifestor {
 
 						if (myThumbnailCSVFile != null) {
                             // TODO: bad magic number, because we know that the thumbnail CSV only has two rows
-							canvas.setThumbnail(searchCSV(myThumbnailCSVFile, sources.get(canvasThumbnailIndex)[0])[1]);
+							canvas.setThumbnail(getCSVRow(myThumbnailCSVFile, sources.get(canvasThumbnailIndex)[0])[1]);
 						}
 						else {
 							canvas.setThumbnail(getThumbnail(getBareID(service.getId())));
@@ -451,9 +437,38 @@ public class CSVManifestor {
 	/**
 	 * Go through the given CSV and find the value that corresponds to the given ARK.
      *
+     * @return {String} value of the field in the matching row, or empty string if no matching row
+	 */
+	private final String getCSVRowField(final File aFile, final String aARK, final String aColumn) throws IOException {
+
+		final CSVReader aCsvReader = new CSVReader(new FileReader(aFile));
+		final List<String[]> sources = aCsvReader.readAll();
+
+		String[] source;
+		for (int index = 1; index < sources.size(); index++) {
+			source = sources.get(index);
+			if (source[0].equals(aARK)) {
+                final String[] header = sources.get(0);
+                final int headerIndex = Arrays.asList(header).indexOf(aColumn);
+				aCsvReader.close();
+                if (headerIndex != -1) {
+                    return source[headerIndex];
+                } else {
+                    return "";
+                }
+			}
+		}
+		aCsvReader.close();
+        // assume that no fields will be empty, so empty string can serve as error flag
+		return "";
+	}
+
+	/**
+	 * Go through the given CSV and find the value that corresponds to the given ARK.
+     *
      * @return {Array} that represents the row, or empty if none is found
 	 */
-	private final String[] searchCSV(final File aFile, final String aARK) throws IOException {
+	private final String[] getCSVRow(final File aFile, final String aARK) throws IOException {
 
 		final CSVReader aCsvReader = new CSVReader(new FileReader(aFile));
 		final List<String[]> sources = aCsvReader.readAll();
@@ -514,7 +529,7 @@ public class CSVManifestor {
 		resource.setLabel(label);
 		if (myThumbnailCSVFile != null) {
             // TODO: bad magic number, because we know that the thumbnail CSV only has two rows
-			resource.setThumbnail(searchCSV(myThumbnailCSVFile, aImageID)[1]);
+			resource.setThumbnail(getCSVRow(myThumbnailCSVFile, aImageID)[1]);
         } else {
             // get from solr
             resource.setThumbnail(getThumbnail(getBareID(service.getId())));
@@ -597,7 +612,7 @@ public class CSVManifestor {
 		manifest.setLogo(myServer + "/images/logos/iiif_logo.png");
 		if (myThumbnailCSVFile != null) {
             // TODO: bad magic number, because we know that the thumbnail CSV only has two rows
-			manifest.setThumbnail(searchCSV(myThumbnailCSVFile, aThumbnail)[1]);
+			manifest.setThumbnail(getCSVRow(myThumbnailCSVFile, aThumbnail)[1]);
         // get from solr
 		} else {
 			manifest.setThumbnail(getThumbnail(aThumbnail));
@@ -609,13 +624,16 @@ public class CSVManifestor {
 	}
 
     private final ArrayList<Metadata> getManifestMetadata(final String aID) throws IOException {
-        ArrayList<Metadata> aMetadata = new ArrayList<Metadata>();
-        String[] CSVHeaders = {"Content", "Extent", "Date", "Condition", "Described in", "Repository"};
-        String[] CSVRow = searchCSV(myMetadataCSVFile, aID);
+		final CSVReader aCsvReader = new CSVReader(new FileReader(myMetadataCSVFile));
+		final List<String[]> sources = aCsvReader.readAll();
 
-        if (CSVHeaders.length == CSVRow.length - 1) {
-            for (int i = 0; i < CSVHeaders.length; i++) {
-                aMetadata.add( new MetadataSimpleWithGetter(CSVHeaders[i], CSVRow[i+1]));
+        ArrayList<Metadata> aMetadata = new ArrayList<Metadata>();
+        String[] CSVHeaders = sources.get(0);
+        String[] CSVRow = getCSVRow(myMetadataCSVFile, aID);
+
+        if (CSVHeaders.length == CSVRow.length) {
+            for (int i = 1; i < CSVHeaders.length; i++) {
+                aMetadata.add( new MetadataSimpleWithGetter(CSVHeaders[i], CSVRow[i]));
             }
         }
         return aMetadata;
@@ -710,10 +728,10 @@ public class CSVManifestor {
 
 	private static final void printUsageAndExit() {
 		System.err.println();
-		System.err.println("Usage:\n    -c [path to source CSV]\n    -l [path to label CSV]\n    -m [path to metadata CSV]\n    -t [path to thumbnail CSV]\n    -o [path to output manifest]\n    -a [Archival Resource Key]\n    -s [server (test, stage, prod)]\n    -d [dimensions (width,height)]\n");
+		System.err.println("Usage:\n    -c [path to source CSV]\n    -m [path to metadata CSV]\n    -t [path to thumbnail CSV]\n    -o [path to output manifest]\n    -a [Archival Resource Key]\n    -s [server (test, stage, prod)]\n    -d [dimensions (width,height)]\n");
 		System.err.println("    -t and -d must both be either present or absent\n");
 		System.err.println(
-				"For example: java -jar ezid-crawler.jar -c \"/home/kevin/syriac-filtered.csv\" -l \"/home/kevin/manifest-labels.csv\" -m \"/home/kevin/manifest-metadata.csv\" -t \"/home/kevin/first-five-thumbnails.csv\" -o \"/home/kevin/manifest.json\" -a \"ark:/21198/z1h70g33\" -s \"stage\" -d \"8000,6000\"");
+				"For example: java -jar ezid-crawler.jar -c \"/home/kevin/syriac-filtered.csv\" -m \"/home/kevin/manifest-metadata.csv\" -t \"/home/kevin/first-five-thumbnails.csv\" -o \"/home/kevin/manifest.json\" -a \"ark:/21198/z1h70g33\" -s \"stage\" -d \"8000,6000\"");
 		System.err.println();
 		System.exit(1);
 	}
