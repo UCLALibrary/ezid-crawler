@@ -236,7 +236,7 @@ public class CSVManifestor {
         }
 	}
 
-	public static void main(final String[] args) throws IOException, URISyntaxException {
+	public static void main(final String[] args) throws IOException, URISyntaxException, Exception {
 		File cFile = null;
         File mFile = null;
 		File tFile = null;
@@ -335,7 +335,7 @@ public class CSVManifestor {
 		}
 	}
 
-	private void manifest(final SinaiComparator aComparator) throws IOException, URISyntaxException {
+	private void manifest(final SinaiComparator aComparator) throws IOException, URISyntaxException, Exception {
 		final CSVReader csvReader = new CSVReader(new FileReader(myImageCSVFile));
 		final List<String[]> sources = csvReader.readAll();
 		final String thumbnailID = sources.get(0)[0]; // for now, just using
@@ -413,7 +413,15 @@ public class CSVManifestor {
 
 						if (myThumbnailCSVFile != null) {
                             // TODO: bad magic number, because we know that the thumbnail CSV only has two rows
-							canvas.setThumbnail(getCSVRow(myThumbnailCSVFile, sources.get(canvasThumbnailIndex)[0])[1]);
+							try {
+								canvas.setThumbnail(getCSVRow(myThumbnailCSVFile, sources.get(canvasThumbnailIndex)[0])[1]);
+							} catch (Exception e) {
+								if (e.getMessage() == "CSV Row Not Found") {
+									LOGGER.error("Thumbnail not found in the CSV file.");
+									System.exit(1);
+								}
+								throw e;
+							}
 						}
 						else {
 							canvas.setThumbnail(getThumbnail(getBareID(service.getId())));
@@ -466,9 +474,9 @@ public class CSVManifestor {
 	/**
 	 * Go through the given CSV and find the value that corresponds to the given ARK.
      *
-     * @return {Array} that represents the row, or empty if none is found
+     * @return {Array} that represents the row, if one is found
 	 */
-	private final String[] getCSVRow(final File aFile, final String aARK) throws IOException {
+	private final String[] getCSVRow(final File aFile, final String aARK) throws IOException, Exception {
 
 		final CSVReader aCsvReader = new CSVReader(new FileReader(aFile));
 		final List<String[]> sources = aCsvReader.readAll();
@@ -481,7 +489,7 @@ public class CSVManifestor {
 			}
 		}
 		aCsvReader.close();
-		return new String[0];
+		throw new Exception("CSV Row Not Found");
 	}
 
 	/**
@@ -513,7 +521,7 @@ public class CSVManifestor {
 	 * @param {String} aLabel   A string (file path usually) from which to generate the resource's 'label'
 	 * @return {ImageResourceWithLabelAndThumbnail} (casted as ImageResource)
 	 */
-	private final ImageResource getImageResource(final String aImageID, final String aLabel) throws URISyntaxException, MalformedURLException, IOException {
+	private final ImageResource getImageResource(final String aImageID, final String aLabel) throws URISyntaxException, MalformedURLException, IOException, Exception {
 		final String label = FileUtils.stripExt(new File(aLabel));
 
 		final ImageResourceWithLabelAndThumbnail resource = new ImageResourceWithLabelAndThumbnail();
@@ -529,7 +537,15 @@ public class CSVManifestor {
 		resource.setLabel(label);
 		if (myThumbnailCSVFile != null) {
             // TODO: bad magic number, because we know that the thumbnail CSV only has two rows
-			resource.setThumbnail(getCSVRow(myThumbnailCSVFile, aImageID)[1]);
+			try {
+				resource.setThumbnail(getCSVRow(myThumbnailCSVFile, aImageID)[1]);
+			} catch (Exception e) {
+				if (e.getMessage() == "CSV Row Not Found") {
+					LOGGER.error("Thumbnail not found in the CSV file.");
+					System.exit(1);
+				}
+				throw e;
+			}
         } else {
             // get from solr
             resource.setThumbnail(getThumbnail(getBareID(service.getId())));
@@ -606,13 +622,21 @@ public class CSVManifestor {
 	}
 
 	private final Manifest getManifest(final String aID, final String aThumbnail, final String aLabel)
-			throws URISyntaxException, IOException {
+			throws URISyntaxException, IOException, Exception {
 		final Manifest manifest = new Manifest(myIiifServer + PathUtils.encodeIdentifier(aID) + "/manifest", aLabel);
 
 		manifest.setLogo(myServer + "/images/logos/iiif_logo.png");
 		if (myThumbnailCSVFile != null) {
             // TODO: bad magic number, because we know that the thumbnail CSV only has two rows
-			manifest.setThumbnail(getCSVRow(myThumbnailCSVFile, aThumbnail)[1]);
+			try {
+				manifest.setThumbnail(getCSVRow(myThumbnailCSVFile, aThumbnail)[1]);
+			} catch (Exception e) {
+				if (e.getMessage() == "CSV Row Not Found") {
+					LOGGER.error("Thumbnail not available for this manuscript");
+					System.exit(1);
+				}
+				throw e;
+			}
         // get from solr
 		} else {
 			manifest.setThumbnail(getThumbnail(aThumbnail));
@@ -623,13 +647,22 @@ public class CSVManifestor {
 		return manifest;
 	}
 
-    private final ArrayList<Metadata> getManifestMetadata(final String aID) throws IOException {
+    private final ArrayList<Metadata> getManifestMetadata(final String aID) throws IOException, Exception {
 		final CSVReader aCsvReader = new CSVReader(new FileReader(myMetadataCSVFile));
 		final List<String[]> sources = aCsvReader.readAll();
 
         ArrayList<Metadata> aMetadata = new ArrayList<Metadata>();
         String[] CSVHeaders = sources.get(0);
-        String[] CSVRow = getCSVRow(myMetadataCSVFile, aID);
+        String[] CSVRow;
+		try {
+			CSVRow = getCSVRow(myMetadataCSVFile, aID);
+		} catch (Exception e) {
+			if (e.getMessage() == "CSV Row Not Found") {
+				LOGGER.error("Metadata info not found in the CSV file.");
+				System.exit(1);
+			}
+			throw e;
+		}
 
         if (CSVHeaders.length == CSVRow.length) {
             for (int i = 1; i < CSVHeaders.length; i++) {
