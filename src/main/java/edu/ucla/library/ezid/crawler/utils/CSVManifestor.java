@@ -368,7 +368,6 @@ public class CSVManifestor {
 
 			for (int index = 0; index < sources.size();) {
 				final String name = getCanvasName(sources.get(index)[1]);
-
 				// check if we are at the end of the list
 				if (!name.equals(canvasName) || index == sources.size() - 1) {
 					if (!canvasName.equals("")) {
@@ -703,7 +702,13 @@ public class CSVManifestor {
 
 	private final String getCanvasName(final String aImagePath) {
 		final String[] parts = aImagePath.split("\\/");
-		return parts[parts.length - 2];
+
+		// check if this tif CSV uses the 'default_includes' scheme
+		if (parts[parts.length - 2].equals("default_includes")) {
+			return parts[parts.length - 3];
+		} else {
+			return parts[parts.length - 2];
+		}
 	}
 
 	private final String getID(final String aHost, final String aID, final String aType, final int aCount) {
@@ -739,11 +744,20 @@ public class CSVManifestor {
 		public int compare(final String[] a1stSource, final String[] a2ndSource) {
 			final String[] splits1 = a1stSource[1].split("/");
 			final String[] splits2 = a2ndSource[1].split("/");
-			final String dirName1 = splits1[splits1.length - 2];
-			final String dirName2 = splits2[splits2.length - 2];
 			final String fileName1 = splits1[splits1.length - 1];
 			final String fileName2 = splits2[splits2.length - 1];
 			final String colorTIFF = "_color.tif";
+
+			String dirName1 = splits1[splits1.length - 2];
+			String dirName2 = splits2[splits2.length - 2];
+
+			// check if this tif CSV uses the 'default_includes' scheme
+			if (dirName1.equals("default_includes")) {
+				dirName1 = splits1[splits1.length - 3];
+			}
+			if (dirName2.equals("default_includes")) {
+				dirName2 = splits2[splits2.length - 3];
+			}
 
 			if (dirName1.equals(dirName2)) {
 				if (fileName1.endsWith(colorTIFF)) {
