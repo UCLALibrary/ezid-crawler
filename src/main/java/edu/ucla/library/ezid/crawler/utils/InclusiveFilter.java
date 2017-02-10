@@ -43,7 +43,7 @@ public class InclusiveFilter {
 
         while ((sourceData = sReader.readNext()) != null) {
             for (int index = 0; index < patterns.size(); index++) {
-                if (sourceData[1].matches(patterns.get(index))) {
+                if (sourceData[1].matches(patterns.get(index).replace("+", "\\+"))) {
                     if (LOGGER.isDebugEnabled()) {
                         LOGGER.debug("Adding file to the list to be ingested: {}", sourceData[0], sourceData[1]);
                     }
