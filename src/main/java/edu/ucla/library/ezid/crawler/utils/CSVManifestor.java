@@ -381,8 +381,14 @@ public class CSVManifestor {
 						}
 						// build a ChoiceImageResource
                         canvasThumbnailIndex = startIndex;
+						if (LOGGER.isDebugEnabled()) {
+                            //LOGGER.debug("Starting at index: {}", index);
+						}
 						for (int count = 1; startIndex < index; startIndex++) {
 							final String[] source = sources.get(startIndex);
+						    if (LOGGER.isDebugEnabled()) {
+                                //LOGGER.debug("    Source: {}", source[1]);
+                            }
 
 							// if count is 1, create a new resource under default
 							aResource = getImageResource(source[0], source[1]);
@@ -412,11 +418,12 @@ public class CSVManifestor {
 
 						if (myThumbnailCSVFile != null) {
                             // TODO: bad magic number, because we know that the thumbnail CSV only has two rows
+                            String firstThumbnail = sources.get(canvasThumbnailIndex)[0];
 							try {
-								canvas.setThumbnail(getCSVRow(myThumbnailCSVFile, sources.get(canvasThumbnailIndex)[0])[1]);
+								canvas.setThumbnail(getCSVRow(myThumbnailCSVFile, firstThumbnail)[1]);
 							} catch (Exception e) {
 								if (e.getMessage() == "CSV Row Not Found") {
-									LOGGER.error("Thumbnail not found in the CSV file.");
+									LOGGER.error("Thumbnail not found in the CSV file for " + firstThumbnail);
 									System.exit(1);
 								}
 								throw e;
@@ -540,7 +547,7 @@ public class CSVManifestor {
 				resource.setThumbnail(getCSVRow(myThumbnailCSVFile, aImageID)[1]);
 			} catch (Exception e) {
 				if (e.getMessage() == "CSV Row Not Found") {
-					LOGGER.error("Thumbnail not found in the CSV file.");
+					LOGGER.error("Thumbnail not found in the CSV file for " + aImageID);
 					System.exit(1);
 				}
 				throw e;
@@ -742,16 +749,19 @@ public class CSVManifestor {
 	class SinaiComparator implements Comparator<String[]> {
 
 		public int compare(final String[] a1stSource, final String[] a2ndSource) {
+            //LOGGER.info("***Comparator: {} {}", a1stSource[1], a2ndSource[1]);
 			final String[] splits1 = a1stSource[1].split("/");
 			final String[] splits2 = a2ndSource[1].split("/");
 			final String fileName1 = splits1[splits1.length - 1];
 			final String fileName2 = splits2[splits2.length - 1];
 			final String colorTIFF = "_color.tif";
+            final int comparisonResult;
 
 			String dirName1 = splits1[splits1.length - 2];
 			String dirName2 = splits2[splits2.length - 2];
 
 			// check if this tif CSV uses the 'default_includes' scheme
+            //LOGGER.info("{} {}", dirName1, dirName2);
 			if (dirName1.equals("default_includes")) {
 				dirName1 = splits1[splits1.length - 3];
 			}
@@ -761,14 +771,21 @@ public class CSVManifestor {
 
 			if (dirName1.equals(dirName2)) {
 				if (fileName1.endsWith(colorTIFF)) {
+                    //LOGGER.info("***            {} before {}", a1stSource[1], a2ndSource[1]);
 					return -1;
 				} else if (fileName2.endsWith(colorTIFF)) {
+                    //LOGGER.info("***            {} after {}", a1stSource[1], a2ndSource[1]);
 					return 1;
 				} else {
-					return fileName1.compareToIgnoreCase(fileName2);
+					comparisonResult = fileName1.compareToIgnoreCase(fileName2);
+                    //LOGGER.info("***            {}" + (comparisonResult < 0 ? " before " : (comparisonResult == 0 ? " same " : " after ")) + "{}", fileName1, fileName2);
+                    return comparisonResult;
 				}
 			} else {
-				return a1stSource[1].compareToIgnoreCase(a2ndSource[1]);
+		        comparisonResult = dirName1.compareToIgnoreCase(dirName2);
+                //LOGGER.info("***Comparator: {} {}", a1stSource[1], a2ndSource[1]);
+                //LOGGER.info("***            {}" + (comparisonResult < 0 ? " before " : (comparisonResult == 0 ? " same " : " after ")) + "{}", a1stSource[1], a2ndSource[1]);
+				return comparisonResult;
 			}
 		}
 	}
